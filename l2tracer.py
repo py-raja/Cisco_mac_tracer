@@ -1,23 +1,26 @@
 import netmiko
 import re
 import traceback
+import argparse
+import os
 
-def find_mac_address(switch_ip, username, password, target_ip):
+
+def find_mac_address(switch_ip, username, password, target_ip, mac_address):
     """
-    Finds the MAC address for a given IP address across multiple Cisco switches using Netmiko.
-    
+    Finds the MAC address for a given IP or uses the given MAC address to trace the switch port.
+
     Args:
         switch_ip: The IP address of the starting switch.
         username: The username for switch access.
         password: The password for switch access.
-        target_ip: The target IP address for which to trace the MAC address pull the details from input.txt.
+        target_ip: The target IP address to find the MAC address (optional if mac_address is provided).
+        mac_address: The MAC address to trace (optional if target_ip is provided).
 
     Returns:
-        The final target IP, switch address and switch port, or None if not found.
+        The target IP (if provided), MAC address, switch address, and switch port, or None if not found.
     """
-    
+
     next_switch_ip = None
-    mac_address = None
     visited_switches = set()  # Track visited switches to avoid loops
 
     while switch_ip is not None and switch_ip not in visited_switches:
@@ -26,14 +29,14 @@ def find_mac_address(switch_ip, username, password, target_ip):
         try:
             # Connect to the switch using Netmiko
             device = netmiko.ConnectHandler(
-                device_type='cisco_ios',
+                device_type="cisco_ios",
                 ip=switch_ip,
                 username=username,
                 password=password,
             )
 
-            # If MAC address is not yet found (first switch), use ARP to find it
-            if mac_address is None:
+            # If MAC address is not provided, use ARP to find it
+            if mac_address is None and target_ip is not None:
                 # Find MAC address using ARP
                 arp_output = device.send_command(f"show ip arp {target_ip}")
 
@@ -46,11 +49,14 @@ def find_mac_address(switch_ip, username, password, target_ip):
 
             # Now that we have the MAC address, find the connected port
             mac_table_output = device.send_command(f"show mac address-table address {mac_address}")
+           
 
             # Extract connected port from MAC address table output
             port_match = re.search(r"\s+(\d+)\s+([0-9a-fA-F]{4}\.[0-9a-fA-F]{4}\.[0-9a-fA-F]{4})\s+\S+\s+(\S+)", mac_table_output)
+        
             if port_match:
                 connected_port = port_match.group(3)
+
 
                 # Check if the port is a trunk port
                 config_output = device.send_command(f"show running-config interface {connected_port}")
@@ -90,7 +96,7 @@ def find_mac_address(switch_ip, username, password, target_ip):
 
                 else:
                     # Reached the end point (access port)
-                    return target_ip, switch_ip, connected_port
+                    return target_ip, mac_address, switch_ip, connected_port
             else:
                 return None
 
@@ -112,6 +118,7 @@ def find_mac_address(switch_ip, username, password, target_ip):
 
     return None
 
+
 # Read input from a text file
 def read_input_file(file_path):
     with open(file_path, 'r') as file:
@@ -119,27 +126,71 @@ def read_input_file(file_path):
         ip_addrs = [line.strip() for line in file if line.strip()]
         return ip_addrs
 
+
 def read_credentials(file_path):
-    with open(file_path, 'r') as file:
+    with open(file_path, "r") as file:
         username = file.readline().strip()  # Read the first line for username
         password = file.readline().strip()  # Read the second line for password
     return username, password
 
-# File containing the IP addresses and credentials
-input_file = "input.txt"  # Change this path to your input file
-credentials_file = "credentials.txt"  # Change this path to your credentials file
+def convert_to_cisco_format(mac_address):
+  """Converts a MAC address to Period-separated Hexadecimal notation and removes whitespace.
 
-# Read IP addresses from the file
-ip_addrs = read_input_file(input_file)
+  Args:
+    mac_address: The MAC address to convert.
 
-# Read username and password from the credentials file
-username, password = read_credentials(credentials_file)
+  Returns:
+    The MAC address in Period-separated Hexadecimal notation with whitespace removed.
+  """
 
-switch_ip = input("Enter Switch IP address: ")  
-for target_ip in ip_addrs:
-    # Call the function 
-    result = find_mac_address(switch_ip, username, password, target_ip)
-    if result is not None:
-        print(f"IP Address: {result[0]}, Switch IP: {result[1]}, Switch Interface: {result[2]}")
+  # Remove hyphens, colons, and whitespace
+  mac_address = mac_address.replace("-", "").replace(":", "").replace(".", "").replace(" ", "")
+
+  # Insert periods every two characters
+  mac_address = ".".join([mac_address[i:i+4] for i in range(0, len(mac_address), 4)])
+
+  return mac_address
+  
+  
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Trace MAC address across switches.")
+    parser.add_argument("-m", "--mac", help="MAC address to trace.")
+    parser.add_argument("-i", "--ip", help="IP address to find the MAC address.")
+    parser.add_argument("-s", "--switch", help="Starting switch IP address.")
+    parser.add_argument("-c", "--credentials", default="credentials.txt", help="Path to the credentials file.")
+    parser.add_argument("-f", "--file", default="input.txt", help="File containing target IPs.")
+
+    args = parser.parse_args()
+
+    # Read username and password from the credentials file
+    username, password = read_credentials(args.credentials)
+    
+    # File containing the IP addresses and credentials
+    input_file = "input.txt"  # Change this path to your input file
+    credentials_file = "credentials.txt"  # Change this path to your credentials file
+    if args.switch is None:
+        switch_ip = input("Enter Switch IP address: ")
     else:
-        print(f"MAC address for IP {target_ip} not found.")
+        switch_ip = args.switch
+    # If MAC address is provided, prioritize it over IP
+    if args.mac:
+        mac_address = convert_to_cisco_format(args.mac)
+        result = find_mac_address(switch_ip, username, password, target_ip=None, mac_address=mac_address)
+        if result is not None:
+            print(f"MAC Address: {result[1]}, Switch IP: {result[2]}, Switch Interface: {result[3]}")
+        else:
+            print(f"MAC address {args.mac} not found.")
+    elif args.ip:
+        result = find_mac_address(switch_ip, username, password, target_ip=args.ip,mac_address=None)
+        if result is not None:
+            print(f"IP Address: {result[0]}, MAC Address: {result[1]}, Switch IP: {result[2]}, Switch Interface: {result[3]}")
+        else:
+            print(f"MAC address for IP {args.ip} not found.")
+    elif os.path.exists("input.txt"):
+        ip_addrs = read_input_file(input_file)
+        for target_ip in ip_addrs:
+            result = find_mac_address(switch_ip, username, password, target_ip,mac_address=None)
+            if result is not None:
+                print(f"IP Address: {result[0]}, Mac Address: {result[1]}, Switch IP: {result[2]}, Switch Interface: {result[3]}")
+            else:
+                print(f"MAC address for IP {target_ip} not found.")
