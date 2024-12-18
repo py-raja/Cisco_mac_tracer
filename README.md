@@ -42,13 +42,13 @@ cisco123
 ## Run the Script:
 python l2tracer.py -s <starting_switch_ip> [-m <mac_address>] [-i <ip_address>] [-c <credentials_file>] [-f <input_file>]
 
-###Command-Line Options:
+### Command-Line Options:
 
--s or --switch: Specify the starting switch IP address (required).
--m or --mac: Specify the MAC address to trace (optional if -i is provided).
--i or --ip: Specify the target IP address to resolve to a MAC address (optional if -m is provided).
--c or --credentials: Specify the path to the credentials file (default: credentials.txt).
--f or --file: Specify the path to the input file containing target IPs (default: input.txt).
+- -s or --switch: Specify the starting switch IP address (required).
+- -m or --mac: Specify the MAC address to trace (optional if -i is provided).
+- -i or --ip: Specify the target IP address to resolve to a MAC address (optional if -m is provided).
+- -c or --credentials: Specify the path to the credentials file (default: credentials.txt).
+- -f or --file: Specify the path to the input file containing target IPs (default: input.txt).
 
 ### Example Commands:
 1.Trace a MAC address:
